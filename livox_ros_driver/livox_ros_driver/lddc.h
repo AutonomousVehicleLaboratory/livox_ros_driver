@@ -26,6 +26,7 @@
 
 #include "lds.h"
 #include "livox_sdk.h"
+#include "include/custom_point_type.h"
 
 #include <ros/ros.h>
 #include <rosbag/bag.h>
@@ -35,7 +36,7 @@
 
 namespace livox_ros {
 
-typedef pcl::PointCloud<pcl::PointXYZI> PointCloud;
+typedef pcl::PointCloud<pcl::PointXYZILTN> PointCloud;
 
 /** Lidar data distribute control */
 typedef enum {
@@ -83,7 +84,8 @@ class Lddc {
   void PollingLidarImuData(uint8_t handle, LidarDevice *lidar);
   void InitPointcloud2MsgHeader(sensor_msgs::PointCloud2& cloud);
   void FillPointsToPclMsg(PointCloud::Ptr& pcl_msg, \
-      LivoxPointXyzrtl* src_point, uint32_t num);
+      LivoxPointXyzrtl* src_point, uint32_t num, uint32_t offset_time, \
+      uint32_t point_interval, uint32_t echo_num);
   void FillPointsToCustomMsg(livox_ros_driver::CustomMsg& livox_msg, \
       LivoxPointXyzrtl* src_point, uint32_t num, uint32_t offset_time, \
       uint32_t point_interval, uint32_t echo_num);

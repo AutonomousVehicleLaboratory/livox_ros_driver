@@ -253,14 +253,22 @@ uint32_t Lddc::PublishPointcloud2(LidarDataQueue *queue, uint32_t packet_num,
 }
 
 void Lddc::FillPointsToPclMsg(PointCloud::Ptr& pcl_msg, \
-    LivoxPointXyzrtl* src_point, uint32_t num) {
+    LivoxPointXyzrtl* src_point, uint32_t num, uint32_t offset_time, \
+    uint32_t point_interval, uint32_t echo_num) {
   LivoxPointXyzrtl* point_xyzrtl = (LivoxPointXyzrtl*)src_point;
   for (uint32_t i = 0; i < num; i++) {
-    pcl::PointXYZI point;
+    pcl::PointXYZILTN point;
+    if (echo_num > 1) { /** dual return mode */
+      point.offset_time = offset_time + (i / echo_num) * point_interval;
+    } else {
+      point.offset_time = offset_time + i * point_interval;
+    }
     point.x = point_xyzrtl->x;
     point.y = point_xyzrtl->y;
     point.z = point_xyzrtl->z;
     point.intensity = point_xyzrtl->reflectivity;
+    point.tag = point_xyzrtl->tag;
+    point.line = point_xyzrtl->line;
     ++point_xyzrtl;
     pcl_msg->points.push_back(point);
   }
@@ -270,6 +278,7 @@ void Lddc::FillPointsToPclMsg(PointCloud::Ptr& pcl_msg, \
 uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
                                      uint8_t handle) {
   uint64_t timestamp = 0;
+  uint64_t timebase = 0;
   uint64_t last_timestamp = 0;
   uint32_t published_packet = 0;
 
@@ -287,9 +296,11 @@ uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
 
   uint8_t point_buf[2048];
   uint32_t is_zero_packet = 0;
+  uint32_t packet_offset_time = 0;  /** uint:ns */
   uint8_t data_source = lidar->data_src;
   uint32_t line_num = GetLaserLineNumber(lidar->info.type);
   uint32_t echo_num = GetEchoNumPerPoint(lidar->raw_data_type);
+  uint32_t point_interval = GetPointInterval(lidar->info.type);
   while ((published_packet < packet_num) && !QueueIsEmpty(queue)) {
     QueuePrePop(queue, &storage_packet);
     LivoxEthPacket *raw_packet =
@@ -307,6 +318,10 @@ uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
     }
     if (!published_packet) {
       cloud->header.stamp = timestamp / 1000.0;  // to pcl ros time stamp
+      timebase = timestamp;
+      packet_offset_time = 0;
+    } else {
+      packet_offset_time = (uint32_t)(timestamp - timebase);
     }
     uint32_t single_point_num = storage_packet.point_num * echo_num;
 
@@ -327,7 +342,9 @@ uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
           line_num);
     }
     LivoxPointXyzrtl *dst_point = (LivoxPointXyzrtl *)point_buf;
-    FillPointsToPclMsg(cloud, dst_point, single_point_num);
+    FillPointsToPclMsg(cloud, dst_point, single_point_num, \
+        packet_offset_time, point_interval, echo_num);
+
     if (!is_zero_packet) {
       QueuePopUpdate(queue);
     } else {
