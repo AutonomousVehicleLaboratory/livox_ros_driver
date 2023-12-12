@@ -252,7 +252,7 @@ uint32_t Lddc::PublishPointcloud2(LidarDataQueue *queue, uint32_t packet_num,
   return published_packet;
 }
 
-void Lddc::FillPointsToPclMsg(PointCloud::Ptr& pcl_msg, \
+void Lddc::FillPointsToPclMsg(pcl::PointCloud<pcl::PointXYZILTN>& cloud, \
     LivoxPointXyzrtl* src_point, uint32_t num, uint32_t offset_time, \
     uint32_t point_interval, uint32_t echo_num) {
   LivoxPointXyzrtl* point_xyzrtl = (LivoxPointXyzrtl*)src_point;
@@ -270,7 +270,7 @@ void Lddc::FillPointsToPclMsg(PointCloud::Ptr& pcl_msg, \
     point.tag = point_xyzrtl->tag;
     point.line = point_xyzrtl->line;
     ++point_xyzrtl;
-    pcl_msg->points.push_back(point);
+    cloud.push_back(point);
   }
 }
 
@@ -289,10 +289,7 @@ uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
     return 0;
   }
 
-  PointCloud::Ptr cloud(new PointCloud);
-  cloud->header.frame_id.assign(frame_id_);
-  cloud->height = 1;
-  cloud->width = 0;
+  pcl::PointCloud<pcl::PointXYZILTN> cloud;
 
   uint8_t point_buf[2048];
   uint32_t is_zero_packet = 0;
@@ -317,7 +314,6 @@ uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
       }
     }
     if (!published_packet) {
-      cloud->header.stamp = timestamp / 1000.0;  // to pcl ros time stamp
       timebase = timestamp;
       packet_offset_time = 0;
     } else {
@@ -350,14 +346,18 @@ uint32_t Lddc::PublishPointcloudData(LidarDataQueue *queue, uint32_t packet_num,
     } else {
       is_zero_packet = 0;
     }
-    cloud->width += single_point_num;
     ++published_packet;
     last_timestamp = timestamp;
   }
 
   ros::Publisher *p_publisher = Lddc::GetCurrentPublisher(handle);
   if (kOutputToRos == output_type_) {
-    p_publisher->publish(cloud);
+    // publish sensor_msgs
+    sensor_msgs::PointCloud2 pcl_ros_msg;
+    pcl::toROSMsg(cloud, pcl_ros_msg);
+    pcl_ros_msg.header.frame_id.assign(frame_id_);
+    pcl_ros_msg.header.stamp = ros::Time(timebase / 1000000000.0);
+    p_publisher->publish(pcl_ros_msg);
   } else {
     if (bag_ && enable_lidar_bag_) {
       bag_->write(p_publisher->getTopic(), ros::Time(timestamp / 1000000000.0),
@@ -643,7 +643,7 @@ ros::Publisher *Lddc::GetCurrentPublisher(uint8_t handle) {
           "%s publish use livox custom format, set ROS publisher queue size %d",
           name_str, queue_size);
     } else if (kPclPxyziMsg == transfer_format_) {
-      **pub = cur_node_->advertise<PointCloud>(name_str, queue_size);
+      **pub = cur_node_->advertise<sensor_msgs::PointCloud2>(name_str, queue_size);
       ROS_INFO(
           "%s publish use pcl PointXYZI format, set ROS publisher queue "
           "size %d",
